@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SparkPlasma: In-Space Plasma Aerodynamic Drag Brake Controller</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Bulletproof MathJax v3 Configuration (Placed before script load) -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true
+      },
+      svg: { fontCache: 'global' },
+      startup: {
+        ready: () => {
+          MathJax.startup.defaultReady();
+        }
+      }
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #04060b;
+      color: #e2e8f0;
+      overflow-x: hidden;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .formula-box {
+      background: #030712;
+      border: 1px solid #1e293b;
+      box-shadow: 0 4px 20px -2px rgba(6, 182, 212, 0.08);
+    }
+    /* Glow utilities */
+    .glow-cyan {
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.35);
+    }
+    .glow-rose {
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    }
+    .glow-violet {
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.35);
+    }
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f19;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #06b6d4;
+    }
+    @media print {
+      body {
+        background-color: #ffffff;
+        color: #000000;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .formula-box {
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        color: #0f172a !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#04060b] text-slate-100">
+
+  <!-- Top Navigation & Global Telemetry Header -->
+  <header class="border-b border-gray-800/80 bg-gray-950/70 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-8 py-3">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+      <!-- Title & NASA SBIR Badge -->
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center glow-cyan">
+          <i data-lucide="zap" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+              SparkPlasma <span class="text-cyan-400 font-mono text-xs px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-800">MHD-DEORBIT v2.4</span>
+            </h1>
+            <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 hidden md:inline-block">
+              NASA SBIR Subtopic Z1.04
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">In-Space Magnetohydrodynamic Plasma Aerodynamic Drag Brake Controller</p>
+        </div>
+      </div>
+
+      <!-- Live Global Quick Indicators -->
+      <div class="flex items-center gap-4">
+        <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-900/60 border border-gray-800 font-mono text-xs">
+          <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-slate-400">LEO ORBIT:</span>
+          <span class="text-emerald-300 font-semibold" id="topOrbitAlt">482 km</span>
+        </div>
+        <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-900/60 border border-gray-800 font-mono text-xs">
+          <span class="text-slate-400">DRAG MULTIPLIER:</span>
+          <span class="text-cyan-300 font-semibold" id="topDragMult">34.8×</span>
+        </div>
+        <!-- Tab Navigation Buttons -->
+        <nav class="flex items-center bg-gray-900/90 p-1 rounded-xl border border-gray-800 text-xs font-medium">
+          <button id="tabBtnSim" onclick="switchTab('sim')" class="px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-cyan-500 text-gray-950 font-semibold shadow-sm">
+            <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+            <span>Sim HUD</span>
+          </button>
+          <button id="tabBtnPhysics" onclick="switchTab('physics')" class="px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5">
+            <i data-lucide="atom" class="w-3.5 h-3.5"></i>
+            <span>Physics Model</span>
+          </button>
+          <button id="tabBtnProposal" onclick="switchTab('proposal')" class="px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5">
+            <i data-lucide="file-check-2" class="w-3.5 h-3.5"></i>
+            <span>NASA SBIR ($225k)</span>
+          </button>
+          <button id="tabBtnARR" onclick="switchTab('arr')" class="px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5">
+            <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
+            <span>Civil ARR ($218M)</span>
+          </button>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Views Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+
+    <!-- ========================================================================= -->
+    <!-- TAB 1: LIVE SIMULATION & TELEMETRY HUD                                    -->
+    <!-- ========================================================================= -->
+    <div id="viewSim" class="space-y-6">
+      
+      <!-- Top Status Banner & Anomaly Warning -->
+      <div id="statusBanner" class="p-3.5 rounded-xl border bg-gray-900/40 border-gray-800 flex flex-wrap items-center justify-between gap-3 backdrop-blur-sm transition-all duration-300">
+        <div class="flex items-center gap-3">
+          <div id="stateIndicatorDot" class="w-3.5 h-3.5 rounded-full bg-cyan-400 animate-pulse"></div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="stateTitle" class="font-bold text-sm tracking-wide text-cyan-300 uppercase font-mono">NOMINAL INFLATION STABLE</span>
+              <span id="stateModeBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300">CLOSED-LOOP AUTONOMOUS</span>
+            </div>
+            <p id="stateDesc" class="text-xs text-slate-400 mt-0.5">Ion sheath boundary fully pressurized against Earth ionosphere. Effective cross-section: 12.4 m² (Physical bus: 0.35 m²).</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 font-mono text-xs">
+          <div class="bg-gray-950/80 px-3 py-1 rounded-md border border-gray-800 text-slate-300">
+            Bubble Radius: <span id="teleBubbleRadius" class="text-cyan-400 font-bold">1.98 m</span>
+          </div>
+          <div class="bg-gray-950/80 px-3 py-1 rounded-md border border-gray-800 text-slate-300">
+            Recomb Rate $\alpha_r$: <span id="teleRecombRate" class="text-emerald-400 font-bold">1.4×10⁻¹³ m³/s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Visual Section: 2D MHD Canvas + (B, Q) Phase-Space Scatter -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Interactive High-Res Spacecraft & Plasma Sheath Canvas (7 cols) -->
+        <div class="lg:col-span-7 bg-gray-900/50 rounded-2xl border border-gray-800 p-4 flex flex-col justify-between relative overflow-hidden backdrop-blur-sm">
+          <div class="flex items-center justify-between mb-3 z-10">
+            <div class="flex items-center gap-2">
+              <i data-lucide="orbit" class="w-4 h-4 text-cyan-400"></i>
+              <h2 class="text-sm font-semibold text-white tracking-wide">Dynamic MHD Plasma Sail Envelope</h2>
+            </div>
+            <div class="flex items-center gap-2 font-mono text-[11px]">
+              <span class="text-slate-400">Ambient Ram Flow $\mathbf{v}_{\text{rel}}$:</span>
+              <span class="text-cyan-300 font-bold">7.65 km/s</span>
+            </div>
+          </div>
+
+          <!-- Canvas Container -->
+          <div class="relative w-full h-[330px] rounded-xl overflow-hidden bg-[#020409] border border-gray-800/80 shadow-inner">
+            <canvas id="plasmaCanvas" class="w-full h-full block"></canvas>
+            
+            <!-- Canvas Overlay Diagnostics -->
+            <div class="absolute bottom-2 left-3 pointer-events-none font-mono text-[10px] text-slate-400 space-y-0.5 bg-black/60 p-2 rounded backdrop-blur border border-gray-800/60">
+              <div>CATHODE BIAS: <span id="hudCathodeBias" class="text-cyan-400 font-bold">-340 V</span></div>
+              <div>ARC PULSE FREQ: <span id="hudArcFreq" class="text-indigo-400 font-bold">4.2 kHz</span></div>
+              <div>MAGNETIC DIPOLE: <span class="text-emerald-400 font-bold">0.85 A·m²</span></div>
+            </div>
+
+            <!-- Visual Quench Hazard Warning inside Canvas -->
+            <div id="quenchAlertBox" class="absolute top-3 right-3 pointer-events-none hidden font-mono text-xs bg-rose-950/90 border border-rose-500 text-rose-200 px-3 py-1.5 rounded-lg glow-rose animate-pulse flex items-center gap-2">
+              <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+              <span>RECOMBINATION QUENCH DETECTED</span>
+            </div>
+          </div>
+
+          <!-- Bottom Micro Metrics Strip -->
+          <div class="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-gray-800/60 font-mono text-xs">
+            <div>
+              <div class="text-[10px] text-slate-500 uppercase">Ballistic Coeff $\beta$</div>
+              <div id="statBeta" class="font-bold text-slate-200">1.82 kg/m²</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-500 uppercase">Drag Force $F_D$</div>
+              <div id="statDragForce" class="font-bold text-cyan-400">14.2 mN</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-500 uppercase">Decay Rate</div>
+              <div id="statDecayRate" class="font-bold text-emerald-400">18.4 km/day</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-500 uppercase">Cathode Power</div>
+              <div id="statPower" class="font-bold text-indigo-300">16.8 W</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Diagnostic Phase Space Plot: B vs Q (5 cols) -->
+        <div class="lg:col-span-5 bg-gray-900/50 rounded-2xl border border-gray-800 p-4 flex flex-col justify-between backdrop-blur-sm">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <i data-lucide="crosshair" class="w-4 h-4 text-cyan-400"></i>
+              <h2 class="text-sm font-semibold text-white tracking-wide">$(B, Q)$ Phase-Space Stability Envelope</h2>
+            </div>
+            <span class="text-[10px] font-mono bg-cyan-950/70 border border-cyan-800 text-cyan-300 px-2 py-0.5 rounded">
+              STATE OBSERVER
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400 mb-2">
+            Tracks total sheath charge $Q$ ($\mu\text{C}$) against ambient/perturbed magnetic flux density $B$ ($\mu\text{T}$). Red zone indicates virtual sail collapse.
+          </p>
+
+          <!-- Phase-Space Chart Canvas -->
+          <div class="relative w-full h-[280px]">
+            <canvas id="phaseChart"></canvas>
+          </div>
+
+          <div class="mt-2 text-[11px] font-mono text-slate-400 flex items-center justify-between border-t border-gray-800/60 pt-2">
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span> Current $(B, Q)$ State</span>
+            <span class="flex items-center gap-1.5 text-rose-400"><span class="w-2.5 h-0.5 bg-rose-500 inline-block border-t border-dashed"></span> Quench Boundary</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Secondary Telemetry Graphs & Dynamic Closed-Loop Flight Controls -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Live Telemetry Trends (Chart 1: Drag Area, Chart 2: Arc Frequency) -->
+        <div class="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Time Series 1: Effective Drag Area -->
+          <div class="bg-gray-900/50 rounded-xl border border-gray-800 p-3.5 backdrop-blur-sm">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-slate-200">Virtual Sail Area $A_{\text{eff}}$ ($m^2$)</span>
+              <span id="labelAreaCurr" class="font-mono text-xs text-cyan-400 font-bold">12.35 m²</span>
+            </div>
+            <div class="h-40">
+              <canvas id="chartAreaHistory"></canvas>
+            </div>
+          </div>
+
+          <!-- Time Series 2: Autonomous Controller Compensation -->
+          <div class="bg-gray-900/50 rounded-xl border border-gray-800 p-3.5 backdrop-blur-sm">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-slate-200">Dynamic Arc Pulse $f_{\text{arc}}$ (kHz)</span>
+              <span id="labelFreqCurr" class="font-mono text-xs text-indigo-400 font-bold">4.20 kHz</span>
+            </div>
+            <div class="h-40">
+              <canvas id="chartFreqHistory"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Closed-Loop Flight Control & Fault Injection Station (5 cols) -->
+        <div class="lg:col-span-5 bg-gray-900/50 rounded-2xl border border-gray-800 p-4.5 flex flex-col justify-between backdrop-blur-sm space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <i data-lucide="sliders" class="w-4 h-4 text-cyan-400"></i>
+              <h3 class="text-sm font-semibold text-white">Closed-Loop Flight Control Panel</h3>
+            </div>
+            <button id="btnAutonomousToggle" onclick="toggleAutonomousMode()" class="px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all bg-emerald-950 border border-emerald-600 text-emerald-300 flex items-center gap-1.5">
+              <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="btnAutoText">AUTONOMOUS: ACTIVE</span>
+            </button>
+          </div>
+
+          <!-- Sliders -->
+          <div class="space-y-3 font-mono text-xs">
+            <div>
+              <div class="flex justify-between text-slate-300 mb-1">
+                <span>Ambient Geomagnetic Flux ($B_{\text{geo}}$):</span>
+                <span id="sliderBVal" class="text-cyan-400 font-bold">38.0 $\mu\text{T}$</span>
+              </div>
+              <input id="sliderB" type="range" min="15" max="65" step="0.5" value="38" oninput="updateEnvironmentSliders()" class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+            </div>
+
+            <div>
+              <div class="flex justify-between text-slate-300 mb-1">
+                <span>Ionospheric Plasma Density ($n_e$):</span>
+                <span id="sliderNeVal" class="text-cyan-400 font-bold">4.5 × 10¹¹ m⁻³</span>
+              </div>
+              <input id="sliderNe" type="range" min="1.0" max="10.0" step="0.1" value="4.5" oninput="updateEnvironmentSliders()" class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 pt-1">
+              <div>
+                <label class="text-[11px] text-slate-400 block mb-1">Manual Arc Bias ($V_{\text{cath}}$)</label>
+                <input id="manualCathode" type="range" min="-600" max="-100" step="10" value="-340" oninput="manualOverride()" disabled class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-not-allowed opacity-50 accent-indigo-400">
+                <span id="manualCathodeVal" class="text-[10px] text-indigo-300">-340 V (Auto)</span>
+              </div>
+              <div>
+                <label class="text-[11px] text-slate-400 block mb-1">Pulse Frequency ($f_{\text{arc}}$)</label>
+                <input id="manualFreq" type="range" min="1.0" max="15.0" step="0.2" value="4.2" oninput="manualOverride()" disabled class="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-not-allowed opacity-50 accent-indigo-400">
+                <span id="manualFreqVal" class="text-[10px] text-indigo-300">4.2 kHz (Auto)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fault Injection / Recovery Action Buttons -->
+          <div class="pt-2 border-t border-gray-800 flex items-center gap-2">
+            <button onclick="injectEquatorialAnomaly()" class="flex-1 py-2 px-3 rounded-xl bg-amber-950/60 hover:bg-amber-900/60 border border-amber-800/80 text-amber-300 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+              <i data-lucide="zap-off" class="w-3.5 h-3.5"></i>
+              <span>Inject Equatorial Recombination Fault</span>
+            </button>
+            <button onclick="triggerEmergencyFlush()" class="py-2 px-3 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-800/80 text-cyan-300 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Forced Arc Flush</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- TAB 2: CORE PHYSICS & MATHEMATICAL MODEL                                  -->
+    <!-- ========================================================================= -->
+    <div id="viewPhysics" class="space-y-6 hidden">
+      
+      <div class="border-b border-gray-800 pb-4">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+          <i data-lucide="book-open" class="w-5 h-5 text-cyan-400"></i>
+          Electrodynamic & Magnetohydrodynamic Plasma Aerodynamics
+        </h2>
+        <p class="text-sm text-slate-400 mt-1">
+          Detailed mathematical formulation of active plasma sheath inflation, low-density ionospheric collision kinetics, and the state-observer inversion algorithms preventing virtual sail collapse.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- Card 1: Governing Magnetohydrodynamic & Drag Equations -->
+        <div class="bg-gray-900/50 border border-gray-800 rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center gap-2 text-cyan-400 mb-2">
+              <i data-lucide="compass" class="w-4 h-4"></i>
+              <h3 class="font-bold text-sm text-white">1. Magnetic Deflection & Effective Drag Cross-Section</h3>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              In low Earth orbit (LEO, 300–600 km), active injection of an electron-ion plasma plume inside an onboard dipole magnetic field $\mathbf{M}$ forms a diamagnetic plasma bubble. The ionized fluid deflects incoming ionospheric ram ions ($\text{O}^+$, $\text{NO}^+$), multiplying the satellite aerodynamic drag force $F_D$ by expanding its effective collision radius $r_{\text{eff}}$ far beyond physical bus geometry:
+            </p>
+
+            <div class="formula-box bg-gray-950 p-3 rounded-lg border border-gray-800 text-center text-cyan-300 text-sm overflow-x-auto my-3">
+              $$F_D = \frac{1}{2} C_D \rho_{\infty} v_{\text{rel}}^2 \cdot \pi r_{\text{eff}}^2, \quad \text{where} \quad r_{\text{eff}} \approx r_0 \left( \frac{\mu_0 M^2 n_p e^2}{4 \rho_{\infty} v_{\text{rel}}^2 m_i} \right)^{1/6}$$
+            </div>
+
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Here $\rho_{\infty}$ is ambient thermospheric mass density, $v_{\text{rel}} \approx 7.6\text{ km/s}$ is orbital velocity, $M$ is magnetic dipole moment ($A\cdot m^2$), and $n_p$ is injected plasma density. The virtual sail operates without deployable booms or thin mylar films vulnerable to orbital micro-meteoroids.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-gray-800/80 text-[11px] font-mono text-cyan-400">
+            Key Metric: Effective Area Multiplier $\eta_A = \frac{\pi r_{\text{eff}}^2}{A_{\text{bus}}} \approx 30\text{--}45\times$
+          </div>
+        </div>
+
+        <!-- Card 2: Microscopic Plume Recombination Kinetics & Quenching -->
+        <div class="bg-gray-900/50 border border-gray-800 rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center gap-2 text-rose-400 mb-2">
+              <i data-lucide="flame" class="w-4 h-4"></i>
+              <h3 class="font-bold text-sm text-white">2. Ion-Electron Recombination & Bubble Quenching</h3>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              The fatal failure mode of active plasma brakes is two-body radiative and three-body dielectronic recombination. In regions of high electron density $n_e$ and cold electron temperature $T_e$, charged particles neutralize back into uncharged gas:
+            </p>
+
+            <div class="formula-box bg-gray-950 p-3 rounded-lg border border-gray-800 text-center text-cyan-300 text-sm overflow-x-auto my-3">
+              $$\frac{dn_e}{dt} = \dot{S}_{\text{arc}} - \alpha_r(T_e) n_e n_i - \nabla \cdot (n_e \mathbf{v}_d) - \nu_{\text{ex}} n_e n_0$$
+            </div>
+
+            <p class="text-xs text-slate-400 leading-relaxed">
+              When recombination rate $\alpha_r(T_e) \propto T_e^{-0.7}$ spikes—common when crossing geomagnetic dip equator where ambient $B$ drops—the net sheath charge $Q$ collapses. Neutralized particles escape unconstrained across magnetic streamlines, dissolving the virtual aerodynamic sail within milliseconds.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-gray-800/80 text-[11px] font-mono text-rose-400">
+            Quench Condition: $\tau_{\text{recomb}} = \frac{1}{\alpha_r n_e} < \tau_{\text{transit}} \implies \text{Bubble Collapse}$
+          </div>
+        </div>
+
+        <!-- Card 3: Diagnostic State Observer & Inversion Algorithm -->
+        <div class="bg-gray-900/50 border border-gray-800 rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center gap-2 text-indigo-400 mb-2">
+              <i data-lucide="cpu" class="w-4 h-4"></i>
+              <h3 class="font-bold text-sm text-white">3. High-Frequency $(B, Q)$ Boundary State Observer</h3>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              Flight software executes an onboard Kalman state observer tracking ambient geomagnetic field $\mathbf{B}_{\text{geo}}$ via 3-axis fluxgate magnetometers and total sheath charge $Q(t) = \int I_{\text{sheath}} dt$ via Langmuir return sensors. The dynamic stability boundary is parameterized by:
+            </p>
+
+            <div class="formula-box bg-gray-950 p-3 rounded-lg border border-gray-800 text-center text-cyan-300 text-sm overflow-x-auto my-3">
+              $$Q_{\text{crit}}(B) = \kappa \cdot \frac{\varepsilon_0 k_B T_e}{e \lambda_D} \exp\left( -\frac{\gamma B}{\sqrt{\rho_{\infty} \mu_0}} \right)$$
+            </div>
+
+            <p class="text-xs text-slate-400 leading-relaxed">
+              When the state vector $(B, Q)$ approaches within a $15\%$ confidence ellipse of $Q_{\text{crit}}$, the controller calculates immediate cathode potential adjustment $\Delta V_{\text{cath}}$ and advances arc discharge frequency $f_{\text{arc}}$ to elevate $T_e$, forcing $\alpha_r \to 0$.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-gray-800/80 text-[11px] font-mono text-indigo-300">
+            Control Law: $u(t) = -K_P (Q - Q_{\text{crit}}) - K_D \frac{d(Q - Q_{\text{crit}})}{dt} + \mu_{\text{arc}} \Delta B$
+          </div>
+        </div>
+
+        <!-- Card 4: Micro-Fabrication, Cathode & Subsystem Specs -->
+        <div class="bg-gray-900/50 border border-gray-800 rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center gap-2 text-emerald-400 mb-2">
+              <i data-lucide="microchip" class="w-4 h-4"></i>
+              <h3 class="font-bold text-sm text-white">4. Spacecraft Hardware & Plasma Arc Architecture</h3>
+            </div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              The flight system is modularized into a 1.5U CubeSat subsystem package weighing under $2.2\text{ kg}$, designed to integrate onto commercial smallsats from 12U to 500 kg ESPA-class buses:
+            </p>
+
+            <div class="formula-box bg-gray-950 p-3 rounded-lg border border-gray-800 text-center text-cyan-300 text-sm overflow-x-auto my-3">
+              $$\eta_{\text{deorbit}} = \frac{\Delta v_{\text{equiv}}}{E_{\text{bus}}} \approx 4.8 \times 10^3 \text{ m/s per kWh} \quad (\gg 10\times \text{ chemical thrusters})$$
+            </div>
+
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Hardware utilizes a solid Teflon or Indium pulsed micro-arc plasma thruster (PPT) with lanthanum hexaboride ($\text{LaB}_6$) hollow cathode emitters, NdFeB passive shielding rings, and radiation-hardened GaN high-frequency H-bridge switching drivers.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-gray-800/80 text-[11px] font-mono text-emerald-400">
+            Hardware Enclosure: $100 \times 100 \times 150 \text{ mm}$ | Bus Power: $12\text{--}35\text{ W}$ peak
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- TAB 3: $225,000 NASA SBIR/STTR PROPOSAL & HARDWARE TRANSITION              -->
+    <!-- ========================================================================= -->
+    <div id="viewProposal" class="space-y-6 hidden">
+      
+      <!-- Solicitation Alignment Header -->
+      <div class="bg-gradient-to-r from-gray-950 via-gray-900 to-indigo-950/40 border border-indigo-900/60 rounded-2xl p-6 relative overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2 text-indigo-400 text-xs font-mono font-bold uppercase tracking-wider">
+              <span>NASA SBIR / STTR Phase I Solicitation</span>
+              <span class="text-slate-600">•</span>
+              <span class="text-cyan-400">Subtopic Z1.04: Active De-Orbiting & Small Spacecraft Aerodynamics</span>
+            </div>
+            <h2 class="text-xl font-bold text-white mt-1">Autonomous MHD Plasma Plume Stabilization for Satellite End-of-Life Disposal</h2>
+            <p class="text-xs text-slate-300 mt-1 max-w-3xl">
+              Targeted for 5-Year Deorbit Mandate (FCC/NASA 2022 Rule). Eliminates mechanical deployment failure points of drag sails and avoids high propellant wet-mass penalties of chemical propulsion.
+            </p>
+          </div>
+          <div class="bg-indigo-950/80 border border-indigo-600/60 px-4 py-2.5 rounded-xl text-right font-mono">
+            <div class="text-[10px] text-indigo-300 uppercase">Phase I Contract Value</div>
+            <div class="text-lg font-bold text-white">$225,000</div>
+            <div class="text-[10px] text-emerald-400">6 Months Period of Perf.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- University Partner Breakdown (STTR 30.0%) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- STTR Partner Card (5 cols) -->
+        <div class="lg:col-span-5 bg-gray-900/50 border border-gray-800 rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-mono font-bold text-cyan-400 uppercase">STTR Academic Subcontract</span>
+              <span class="text-xs font-mono bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded">30.0% Allocation</span>
+            </div>
+            <h3 class="text-base font-bold text-white mt-2">University of Central Florida (UCF)</h3>
+            <p class="text-xs text-slate-400 font-mono">Center for Advanced Turbomachinery & Energy Research (CATER)</p>
+            
+            <div class="my-4 p-3 bg-gray-950 rounded-xl border border-gray-800/80 font-mono text-xs space-y-1.5">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Direct Subcontract:</span>
+                <span class="text-white font-bold">$67,500.00</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Lead Investigator:</span>
+                <span class="text-cyan-300">Dr. Jay K. Kapat (Plasma/Aero)</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Facility Access:</span>
+                <span class="text-emerald-300">Hypersonic Arc-Jet & Vacuum Chambers</span>
+              </div>
+            </div>
+
+            <p class="text-xs text-slate-300 leading-relaxed">
+              UCF CATER maintains an ultra-high vacuum chamber ($10^{-7}\text{ Torr}$) equipped with plasma Langmuir probe arrays and pulsed laser diagnostics to empirically validate the $(B, Q)$ boundary model under simulated LEO atomic oxygen ram conditions.
+            </p>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-gray-800 text-xs text-slate-400">
+            Deliverable: Validated plasma recombination rate coefficients under multi-frequency arc discharge modulation.
+          </div>
+        </div>
+
+        <!-- 6-Month Work Breakdown Milestones (7 cols) -->
+        <div class="lg:col-span-7 bg-gray-900/50 border border-gray-800 rounded-2xl p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="git-merge" class="w-4 h-4 text-cyan-400"></i>
+              Phase I Milestone Execution Schedule
+            </h3>
+            <span class="text-xs font-mono text-slate-400">Month 1 – Month 6</span>
+          </div>
+
+          <div class="space-y-3 font-mono text-xs">
+            <!-- M1 -->
+            <div class="p-3 bg-gray-950/70 border border-gray-800/80 rounded-xl flex items-start gap-3">
+              <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 font-bold border border-cyan-800 text-[11px]">M1-M2</span>
+              <div class="flex-1">
+                <div class="text-white font-semibold">Kinetic Particle-in-Cell (PIC) Sheath Modeling</div>
+                <div class="text-slate-400 text-[11px] mt-0.5">High-fidelity 3D modeling of electron-ion sheath deflection against ambient magnetic flux ($15\text{--}65\text{ }\mu\text{T}$).</div>
+              </div>
+              <span class="text-slate-500 text-[11px]">$42,500</span>
+            </div>
+
+            <!-- M2 -->
+            <div class="p-3 bg-gray-950/70 border border-gray-800/80 rounded-xl flex items-start gap-3">
+              <span class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 font-bold border border-indigo-800 text-[11px]">M3</span>
+              <div class="flex-1">
+                <div class="text-white font-semibold">State Observer $(B, Q)$ Inversion Algorithm</div>
+                <div class="text-slate-400 text-[11px] mt-0.5">Development of embedded C++ flight software algorithm for real-time quench prediction & auto-tuning.</div>
+              </div>
+              <span class="text-slate-500 text-[11px]">$45,000</span>
+            </div>
+
+            <!-- M3 -->
+            <div class="p-3 bg-gray-950/70 border border-gray-800/80 rounded-xl flex items-start gap-3">
+              <span class="px-2 py-0.5 rounded bg-violet-950 text-violet-300 font-bold border border-violet-800 text-[11px]">M4-M5</span>
+              <div class="flex-1">
+                <div class="text-white font-semibold">UCF Vacuum Arc-Jet Experimental Validation</div>
+                <div class="text-slate-400 text-[11px] mt-0.5">Hardware-in-the-loop testing in UCF CATER vacuum chambers; demonstration of 35× virtual drag envelope without quenching.</div>
+              </div>
+              <span class="text-slate-500 text-[11px]">$67,500</span>
+            </div>
+
+            <!-- M4 -->
+            <div class="p-3 bg-gray-950/70 border border-gray-800/80 rounded-xl flex items-start gap-3">
+              <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 font-bold border border-emerald-800 text-[11px]">M6</span>
+              <div class="flex-1">
+                <div class="text-white font-semibold">Phase II Flight Demonstration Prototype Specification</div>
+                <div class="text-slate-400 text-[11px] mt-0.5">Final architecture design for TRL-6 1U CubeSat payload flight demonstration on 2028 NASA Rideshare.</div>
+              </div>
+              <span class="text-slate-500 text-[11px]">$70,000</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Phase II Transition Strategy Card -->
+      <div class="bg-gray-900/50 border border-gray-800 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="rocket" class="w-4 h-4 text-emerald-400"></i>
+            Phase II Transition: $850k–$1.2M Prototype & Orbital Flight Demo
+          </h3>
+          <p class="text-xs text-slate-300 mt-1 max-w-2xl">
+            Direct path to TRL-7 through commercial partnership with SmallSat constellation operators (Planet, Spire, Starlink partners) requiring compliant deorbit hardware under the updated FCC 5-year post-mission disposal rule.
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="downloadProposalBrief()" class="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold font-mono flex items-center gap-2 transition-all">
+            <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+            <span>Print Executive Brief</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- TAB 4: COMMERCIAL & NATIONWIDE ARR BREAKDOWN                               -->
+    <!-- ========================================================================= -->
+    <div id="viewARR" class="space-y-6 hidden">
+      
+      <!-- Top ARR Headline Banner -->
+      <div class="bg-gradient-to-r from-gray-950 via-gray-900 to-cyan-950/40 border border-cyan-800/60 rounded-2xl p-6">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div class="text-cyan-400 text-xs font-mono font-bold uppercase tracking-wider">
+              Civil Commercialization & Dual-Use Transition
+            </div>
+            <h2 class="text-2xl font-bold text-white mt-1">Total Addressable Civil ARR: $218.4M</h2>
+            <p class="text-xs text-slate-300 mt-1 max-w-2xl">
+              Software runtime licensing, autonomous orbit decay telemetry, and ground collision avoid-deorbit controllers across non-defense satellite operators, orbital servicing, and space situational awareness fleets.
+            </p>
+          </div>
+          <div class="bg-cyan-950/80 border border-cyan-600/60 px-5 py-3 rounded-xl text-right font-mono">
+            <div class="text-[10px] text-cyan-300 uppercase">Enterprise Valuation (10× Multiple)</div>
+            <div class="text-2xl font-bold text-white">$2.18 Billion</div>
+            <div class="text-[10px] text-slate-400">Civil Space Domain Focus</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ARR Distribution Table -->
+      <div class="bg-gray-900/50 border border-gray-800 rounded-2xl overflow-hidden">
+        <div class="p-4 border-b border-gray-800 flex items-center justify-between">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <i data-lucide="table" class="w-4 h-4 text-cyan-400"></i>
+            Civil Commercial Verticals & Runtime Software Economics
+          </h3>
+          <span class="text-xs font-mono text-slate-400">Projected Year 4 Mature Deployment</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left font-mono text-xs">
+            <thead class="bg-gray-950 text-slate-400 uppercase text-[10px] border-b border-gray-800">
+              <tr>
+                <th class="p-3.5 pl-4">Civil Vertical</th>
+                <th class="p-3.5">Target Application</th>
+                <th class="p-3.5">Software Runtime Model</th>
+                <th class="p-3.5">National / Global Asset Base</th>
+                <th class="p-3.5 pr-4 text-right">Mature Annual ARR</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-800/60 text-slate-200">
+              <tr class="hover:bg-gray-800/30">
+                <td class="p-3.5 pl-4 font-bold text-cyan-300">Commercial Mega-Constellations</td>
+                <td class="p-3.5 font-sans">LEO Broadband & Earth Imaging Deorbiting</td>
+                <td class="p-3.5">$18,000 / sat lifetime SaaS license</td>
+                <td class="p-3.5">5,200 satellites / yr retired</td>
+                <td class="p-3.5 pr-4 text-right font-bold text-white">$93.6M</td>
+              </tr>
+              <tr class="hover:bg-gray-800/30">
+                <td class="p-3.5 pl-4 font-bold text-cyan-300">Orbital Tug & Active Debris Removal</td>
+                <td class="p-3.5 font-sans">MHD braking for spent rocket upper stages</td>
+                <td class="p-3.5">$65,000 / captured target run</td>
+                <td class="p-3.5">620 upper stages & debris</td>
+                <td class="p-3.5 pr-4 text-right font-bold text-white">$40.3M</td>
+              </tr>
+              <tr class="hover:bg-gray-800/30">
+                <td class="p-3.5 pl-4 font-bold text-cyan-300">Very Low Earth Orbit (VLEO) Fleets</td>
+                <td class="p-3.5 font-sans">Active MHD trim & atmospheric drag counter</td>
+                <td class="p-3.5">$24,000 / active node annual runtime</td>
+                <td class="p-3.5">1,450 operational VLEO craft</td>
+                <td class="p-3.5 pr-4 text-right font-bold text-white">$34.8M</td>
+              </tr>
+              <tr class="hover:bg-gray-800/30">
+                <td class="p-3.5 pl-4 font-bold text-cyan-300">University & Commercial CubeSat Buses</td>
+                <td class="p-3.5 font-sans">Zero-propellant 5-year FCC compliance kits</td>
+                <td class="p-3.5">$8,500 / plug-and-play flight controller</td>
+                <td class="p-3.5">2,800 micro/nanosats launched</td>
+                <td class="p-3.5 pr-4 text-right font-bold text-white">$23.8M</td>
+              </tr>
+              <tr class="hover:bg-gray-800/30">
+                <td class="p-3.5 pl-4 font-bold text-cyan-300">Space Stations & Orbital Hab Outposts</td>
+                <td class="p-3.5 font-sans">Emergency deceleration for resupply capsules</td>
+                <td class="p-3.5">$180,000 / human/cargo capsule mission</td>
+                <td class="p-3.5">72 commercial flights / yr</td>
+                <td class="p-3.5 pr-4 text-right font-bold text-white">$13.0M</td>
+              </tr>
+              <tr class="hover:bg-gray-800/30">
+                <td class="p-3.5 pl-4 font-bold text-cyan-300">In-Orbit Servicing & Manufacturing</td>
+                <td class="p-3.5 font-sans">Controlled re-entry descent corridor guidance</td>
+                <td class="p-3.5">$42,000 / manufactured product descent</td>
+                <td class="p-3.5">310 sample return containers</td>
+                <td class="p-3.5 pr-4 text-right font-bold text-white">$12.9M</td>
+              </tr>
+            </tbody>
+            <tfoot class="bg-gray-950 font-bold text-slate-100 border-t border-gray-700">
+              <tr>
+                <td colspan="4" class="p-3.5 pl-4 uppercase">Total Addressable Annual Civil ARR</td>
+                <td class="p-3.5 pr-4 text-right text-emerald-400 text-sm">$218.4M</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Deep Dive Cards: Physics in 1 Sentence & Why Others Missed This -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        
+        <!-- Card 1 -->
+        <div class="bg-gray-900/50 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between">
+          <div>
+            <h4 class="font-bold text-sm text-cyan-300">Mega-Constellation Disposal</h4>
+            <div class="mt-2 text-xs text-slate-300 font-sans">
+              <strong class="text-white block font-mono text-[11px] text-cyan-400 mb-0.5">Physics in 1 Sentence:</strong>
+              Ejecting localized arc charges into Earth's background magnetic field creates a Lorentz boundary layer that magnifies collision frequency with neutral thermospheric nitrogen and oxygen by over 30×.
+            </div>
+            <div class="mt-3 text-xs text-slate-400 font-sans">
+              <strong class="text-amber-400 block font-mono text-[11px] mb-0.5">Why Others Missed This:</strong>
+              Incumbents relied on bulky deployable mechanical mylar drag sails that shred upon impact with millimeter orbital space debris or jam during unspooling booms.
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-gray-800 text-[10px] font-mono text-emerald-400">Zero Mechanical Moving Parts</div>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="bg-gray-900/50 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between">
+          <div>
+            <h4 class="font-bold text-sm text-cyan-300">Upper Stage Active Debris Cleaners</h4>
+            <div class="mt-2 text-xs text-slate-300 font-sans">
+              <strong class="text-white block font-mono text-[11px] text-cyan-400 mb-0.5">Physics in 1 Sentence:</strong>
+              Dynamic pulse modulation adjusts virtual drag area from $0.5\text{ m}^2$ to $40\text{ m}^2$ to precisely guide spent 2-ton rocket boosters into uninhabited Pacific Ocean descent corridors.
+            </div>
+            <div class="mt-3 text-xs text-slate-400 font-sans">
+              <strong class="text-amber-400 block font-mono text-[11px] mb-0.5">Why Others Missed This:</strong>
+              Incumbents reserved up to 15% of rocket wet mass for unignited chemical deorbit reserves, directly reducing customer payload capacity and launch revenue.
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-gray-800 text-[10px] font-mono text-emerald-400">Payload Mass Savings: +180 kg</div>
+        </div>
+
+        <!-- Card 3 -->
+        <div class="bg-gray-900/50 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between">
+          <div>
+            <h4 class="font-bold text-sm text-cyan-300">VLEO Aerodynamic Station Keeping</h4>
+            <div class="mt-2 text-xs text-slate-300 font-sans">
+              <strong class="text-white block font-mono text-[11px] text-cyan-400 mb-0.5">Physics in 1 Sentence:</strong>
+              High-frequency cathode bias switching modulates drag on demand without gimbaled thrusters, stabilizing ultra-low Earth observation satellites in 250 km orbits against diurnal solar storms.
+            </div>
+            <div class="mt-3 text-xs text-slate-400 font-sans">
+              <strong class="text-amber-400 block font-mono text-[11px] mb-0.5">Why Others Missed This:</strong>
+              Operators treated atmospheric drag as a pure adversary, burning precious propulsion fuel continuously rather than electrodynamically turning it into a controllable flight surface.
+            </div>
+          </div>
+          <div class="mt-3 pt-2 border-t border-gray-800 text-[10px] font-mono text-emerald-400">Mission Life Extension: 3.5×</div>
+        </div>
+
+      </div>
+
+      <!-- Executive Contact & Partnership Callout -->
+      <div class="p-4 bg-gray-950 rounded-xl border border-gray-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <div class="text-xs font-bold text-white">Commercial Licensing & Dual-Use Prime Inquiries</div>
+          <p class="text-xs text-slate-400 mt-0.5">Direct integration support for smallsat constellation primes and launch providers.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <a href="mailto:support@rfwavecode.com" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-gray-950 text-xs font-bold font-mono transition-all flex items-center gap-2">
+            <i data-lucide="mail" class="w-4 h-4"></i>
+            <span>support@rfwavecode.com</span>
+          </a>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Sticky Bottom Telemetry Status Strip -->
+  <footer class="border-t border-gray-800/80 bg-gray-950/80 backdrop-blur px-4 lg:px-8 py-2 text-xs font-mono text-slate-400 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-4">
+      <span class="flex items-center gap-1.5 text-cyan-300">
+        <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+        FLIGHT CORE: OK
+      </span>
+      <span class="hidden md:inline">KALMAN RESIDUAL: <strong id="footKalman" class="text-slate-200">0.014</strong></span>
+      <span class="hidden md:inline">IONOSPHERE LAT: <strong id="footLat" class="text-slate-200">12.4° N (Sub-Equatorial)</strong></span>
+    </div>
+    <div class="text-slate-400 flex items-center gap-3">
+      <span>SPARKPLASMA NASA SBIR PHASE I</span>
+      <span class="text-slate-600">|</span>
+      <span>UCF CATER PARTNERSHIP</span>
+    </div>
+  </footer>
+
+  <!-- ========================================================================= -->
+  <!-- JAVASCRIPT LOGIC: SIMULATION, CHARTS, PHASE-SPACE & CONTROLLER            -->
+  <!-- ========================================================================= -->
+  <script>
+    // ---------------------------------------------------------------------------
+    // 1. Explicit Tab Switching Engine (Zero Black Screens / Instant MathJax)
+    // ---------------------------------------------------------------------------
+    const tabMapping = {
+      'sim': { viewId: 'viewSim', btnId: 'tabBtnSim' },
+      'physics': { viewId: 'viewPhysics', btnId: 'tabBtnPhysics' },
+      'proposal': { viewId: 'viewProposal', btnId: 'tabBtnProposal' },
+      'arr': { viewId: 'viewARR', btnId: 'tabBtnARR' }
+    };
+
+    function switchTab(targetKey) {
+      Object.keys(tabMapping).forEach(key => {
+        const view = document.getElementById(tabMapping[key].viewId);
+        const btn = document.getElementById(tabMapping[key].btnId);
+        if (key === targetKey) {
+          view.classList.remove('hidden');
+          btn.className = 'px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-cyan-500 text-gray-950 font-semibold shadow-sm';
+        } else {
+          view.classList.add('hidden');
+          btn.className = 'px-3.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 transition-all flex items-center gap-1.5';
+        }
+      });
+
+      // Retrigger Lucide icon render
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+
+      // Re-trigger MathJax typeset promise
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise();
+      }
+
+      // If returning to sim, immediately resize canvas and draw
+      if (targetKey === 'sim') {
+        setTimeout(() => {
+          resizeCanvas();
+          drawCanvas();
+        }, 50);
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // 2. Physical & Controller State Model
+    // ---------------------------------------------------------------------------
+    const state = {
+      // Ambient Space Environment
+      B_geo: 38.0,              // microTesla (15 - 65 uT)
+      ne_ambient: 4.5,          // 10^11 m^-3 (1.0 - 10.0)
+      orbitAlt: 482.0,          // km
+      subLat: 12.4,             // degrees North
+      
+      // Active Spacecraft MHD State
+      charge_Q: 42.5,           // microCoulombs (uC)
+      cathodeBias: -340,        // Volts (-600 to -100 V)
+      arcFreq: 4.2,             // kHz (1.0 to 15.0 kHz)
+      dragMult: 34.8,           // multiplier over physical bus
+      bubbleRadius: 1.98,       // meters
+      recombRate: 1.4e-13,      // m^3 / s
+      
+      // Control loop
+      autonomous: true,
+      quenchAlert: false,
+      faultActive: false,
+      faultCooldown: 0,
+      
+      // Particles for visual canvas
+      particles: [],
+      arcRays: [],
+      
+      // Telemetry ring buffers
+      historyTime: [],
+      historyArea: [],
+      historyFreq: []
+    };
+
+    // Initialize telemetry history
+    for (let i = 20; i >= 0; i--) {
+      state.historyTime.push(`-${i*2}s`);
+      state.historyArea.push(12.2 + (Math.random() * 0.4 - 0.2));
+      state.historyFreq.push(4.2 + (Math.random() * 0.2 - 0.1));
+    }
+
+    // ---------------------------------------------------------------------------
+    // 3. Canvas Simulation (Spacecraft Bus & MHD Plasma Bubble)
+    // ---------------------------------------------------------------------------
+    const canvas = document.getElementById('plasmaCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width || 600;
+      const h = rect.height || 330;
+      canvas.width = w * window.devicePixelRatio;
+      canvas.height = h * window.devicePixelRatio;
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // Initialize particles
+    function initParticles() {
+      state.particles = [];
+      const count = 75;
+      for (let i = 0; i < count; i++) {
+        state.particles.push({
+          x: Math.random() * 600,
+          y: Math.random() * 330,
+          vx: -(3 + Math.random() * 3),
+          vy: (Math.random() - 0.5) * 1.5,
+          charge: Math.random() > 0.5 ? 1 : -1,
+          size: 1.5 + Math.random() * 1.5,
+          alpha: 0.3 + Math.random() * 0.7
+        });
+      }
+    }
+    initParticles();
+
+    function drawCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width || 600;
+      const h = rect.height || 330;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // 1. Draw Space Background & Distant Stars
+      ctx.fillStyle = '#020409';
+      ctx.fillRect(0, 0, w, h);
+
+      // Starfield grid
+      ctx.fillStyle = '#0d1627';
+      for (let i = 0; i < 40; i++) {
+        const sx = (i * 97) % w;
+        const sy = (i * 43) % h;
+        ctx.fillRect(sx, sy, 1, 1);
+      }
+
+      // 2. Spacecraft Center Coordinates
+      const scX = w * 0.58;
+      const scY = h * 0.5;
+
+      // Calculate dynamic bubble visual dimensions
+      const bubbleW = Math.max(30, state.bubbleRadius * 65);
+      const bubbleH = Math.max(25, state.bubbleRadius * 52);
+
+      // Draw Earth Geomagnetic Field Lines (Curved streamlines)
+      ctx.save();
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.12)';
+      ctx.lineWidth = 1;
+      for (let offset = -120; offset <= 120; offset += 30) {
+        ctx.beginPath();
+        ctx.moveTo(0, scY + offset * 1.2);
+        ctx.bezierCurveTo(
+          scX - 100, scY + offset * 1.4,
+          scX, scY + offset * (state.quenchAlert ? 0.3 : 1.8),
+          w, scY + offset * 0.9
+        );
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 3. Draw Virtual Plasma Bubble Sheath
+      ctx.save();
+      if (!state.quenchAlert) {
+        // High-density healthy diamagnetic bubble
+        const grad = ctx.createRadialGradient(scX, scY, 15, scX - 20, scY, bubbleW);
+        grad.addColorStop(0, 'rgba(6, 182, 212, 0.45)');
+        grad.addColorStop(0.4, 'rgba(99, 102, 241, 0.25)');
+        grad.addColorStop(0.85, 'rgba(6, 182, 212, 0.12)');
+        grad.addColorStop(1, 'rgba(6, 182, 212, 0.0)');
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        // Teardrop aerodynamic deflection shape facing oncoming ram on left
+        ctx.ellipse(scX - 15, scY, bubbleW, bubbleH, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Glowing outer shock boundary
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 2]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        // Quenched / Collapsing Bubble
+        const grad = ctx.createRadialGradient(scX, scY, 5, scX, scY, bubbleW * 0.4);
+        grad.addColorStop(0, 'rgba(239, 68, 68, 0.5)');
+        grad.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(scX, scY, bubbleW * 0.4, bubbleH * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 4. Draw Spacecraft 3U Satellite Body
+      ctx.save();
+      // Bus body
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.fillRect(scX - 18, scY - 12, 36, 24);
+      ctx.strokeRect(scX - 18, scY - 12, 36, 24);
+
+      // Gold solar panel wings
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1;
+      // Top array
+      ctx.fillRect(scX - 12, scY - 38, 24, 22);
+      ctx.strokeRect(scX - 12, scY - 38, 24, 22);
+      // Bottom array
+      ctx.fillRect(scX - 12, scY + 16, 24, 22);
+      ctx.strokeRect(scX - 12, scY + 16, 24, 22);
+
+      // Solar cell cross-hatch lines
+      ctx.strokeStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.moveTo(scX - 12, scY - 27); ctx.lineTo(scX + 12, scY - 27);
+      ctx.moveTo(scX - 12, scY + 27); ctx.lineTo(scX + 12, scY + 27);
+      ctx.stroke();
+
+      // Active Arc Discharge Cathode Emitter (Front-facing ram side)
+      ctx.fillStyle = state.quenchAlert ? '#ef4444' : '#06b6d4';
+      ctx.beginPath();
+      ctx.arc(scX - 18, scY, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Emit active spark discharge arcs forward
+      if (Math.random() > 0.15) {
+        ctx.strokeStyle = state.quenchAlert ? 'rgba(248, 113, 113, 0.9)' : 'rgba(165, 243, 252, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(scX - 18, scY);
+        const arcSpread = (Math.random() - 0.5) * 30;
+        ctx.lineTo(scX - 35 - Math.random() * 25, scY + arcSpread);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 5. Update & Render Ambient Ionospheric Streamlines & Deflected Particles
+      ctx.save();
+      for (let p of state.particles) {
+        // Check deflection against plasma bubble boundary
+        const dx = p.x - scX;
+        const dy = p.y - scY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (!state.quenchAlert && dist < bubbleW * 0.95 && p.x < scX) {
+          // Lorentz MHD Deflection around sheath
+          p.vy += (p.y > scY ? 0.35 : -0.35);
+          p.vx *= 0.96;
+        }
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Reset particles looping back from right side
+        if (p.x < -10) {
+          p.x = w + 10;
+          p.y = Math.random() * h;
+          p.vx = -(3.5 + Math.random() * 3.5);
+          p.vy = (Math.random() - 0.5) * 1.0;
+        }
+
+        // Particle rendering
+        ctx.fillStyle = p.charge > 0 
+          ? (state.quenchAlert ? 'rgba(239, 68, 68, 0.7)' : 'rgba(6, 182, 212, 0.8)') 
+          : 'rgba(147, 197, 253, 0.6)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 6. Draw Ram Velocity Vector Label
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.fillText('← IONOSPHERIC RAM (7.65 km/s)', 16, 24);
+    }
+
+    // ---------------------------------------------------------------------------
+    // 4. Chart.js Graphs Setup
+    // ---------------------------------------------------------------------------
+    
+    // (A) (B, Q) Phase-Space Stability Scatter Chart
+    const phaseCtx = document.getElementById('phaseChart').getContext('2d');
+    
+    // Generate nominal baseline curve points: Q_nom = f(B)
+    const nominalCurveData = [];
+    const quenchThresholdData = [];
+    for (let b = 15; b <= 65; b += 2) {
+      // Nominal stable equilibrium
+      const qNom = 12 + 0.85 * b;
+      nominalCurveData.push({ x: b, y: qNom });
+      // Critical Quench Boundary below which recombination dominates
+      const qCrit = 8 + 0.42 * b;
+      quenchThresholdData.push({ x: b, y: qCrit });
+    }
+
+    const phaseChart = new Chart(phaseCtx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: 'Quench Boundary (Critical Q)',
+            data: quenchThresholdData,
+            showLine: true,
+            borderColor: '#ef4444',
+            borderWidth: 2,
+            borderDash: [5, 4],
+            pointRadius: 0,
+            fill: {
+              target: 'origin',
+              above: 'rgba(239, 68, 68, 0.12)'
+            }
+          },
+          {
+            label: 'Nominal Bubble Equilibrium',
+            data: nominalCurveData,
+            showLine: true,
+            borderColor: 'rgba(56, 189, 248, 0.6)',
+            borderWidth: 1.5,
+            pointRadius: 0
+          },
+          {
+            label: 'Current Flight State (B, Q)',
+            data: [{ x: state.B_geo, y: state.charge_Q }],
+            backgroundColor: '#06b6d4',
+            borderColor: '#ffffff',
+            borderWidth: 2,
+            pointRadius: 7,
+            pointHoverRadius: 9
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Ambient Magnetic Flux B (μT)',
+              color: '#94a3b8',
+              font: { family: 'JetBrains Mono', size: 10 }
+            },
+            min: 15,
+            max: 65,
+            grid: { color: 'rgba(30, 41, 59, 0.6)' },
+            ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 9 } }
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Sheath Charge Q (μC)',
+              color: '#94a3b8',
+              font: { family: 'JetBrains Mono', size: 10 }
+            },
+            min: 5,
+            max: 75,
+            grid: { color: 'rgba(30, 41, 59, 0.6)' },
+            ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 9 } }
+          }
+        },
+        plugins: {
+          legend: { display: false }
+        }
+      }
+    });
+
+    // (B) Telemetry Chart 1: Effective Drag Area History
+    const areaCtx = document.getElementById('chartAreaHistory').getContext('2d');
+    const chartAreaHistory = new Chart(areaCtx, {
+      type: 'line',
+      data: {
+        labels: state.historyTime,
+        datasets: [{
+          data: state.historyArea,
+          borderColor: '#06b6d4',
+          backgroundColor: 'rgba(6, 182, 212, 0.12)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        scales: {
+          x: { display: false },
+          y: {
+            min: 0,
+            max: 18,
+            grid: { color: 'rgba(30, 41, 59, 0.6)' },
+            ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 9 } }
+          }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    // (C) Telemetry Chart 2: Controller Arc Frequency History
+    const freqCtx = document.getElementById('chartFreqHistory').getContext('2d');
+    const chartFreqHistory = new Chart(freqCtx, {
+      type: 'line',
+      data: {
+        labels: state.historyTime,
+        datasets: [{
+          data: state.historyFreq,
+          borderColor: '#818cf8',
+          backgroundColor: 'rgba(129, 140, 248, 0.12)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        scales: {
+          x: { display: false },
+          y: {
+            min: 1,
+            max: 15,
+            grid: { color: 'rgba(30, 41, 59, 0.6)' },
+            ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 9 } }
+          }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    // ---------------------------------------------------------------------------
+    // 5. Physics Simulation Step & Autonomous Closed-Loop Controller
+    // ---------------------------------------------------------------------------
+    let tickCount = 0;
+
+    function physicsStep() {
+      tickCount++;
+
+      // Slowly simulate orbital progression around the Earth (Equator crossing)
+      state.subLat += 0.05;
+      if (state.subLat > 65) state.subLat = -65;
+      document.getElementById('footLat').innerText = `${Math.abs(state.subLat).toFixed(1)}° ${state.subLat >= 0 ? 'N' : 'S'} (LEO Track)`;
+
+      // Equatorial Dip: B is lower at equator
+      const latRad = (state.subLat * Math.PI) / 180;
+      const calculatedB = 25 + 32 * Math.sin(latRad) * Math.sin(latRad);
+      
+      // If user hasn't overridden with slider recently, follow orbital B
+      if (!state.manualSliderActive) {
+        state.B_geo = calculatedB;
+        document.getElementById('sliderB').value = state.B_geo.toFixed(1);
+        document.getElementById('sliderBVal').innerHTML = `${state.B_geo.toFixed(1)} $\\mu\\text{T}$`;
+      }
+
+      // Compute critical stability charge boundary Q_crit for current B
+      const qCrit = 8 + 0.42 * state.B_geo;
+
+      // Handle fault cooldown
+      if (state.faultCooldown > 0) {
+        state.faultCooldown--;
+        if (state.faultCooldown === 0) state.faultActive = false;
+      }
+
+      // Autonomous Closed-Loop Inversion Controller
+      if (state.autonomous) {
+        if (state.charge_Q < qCrit + 4.5 || state.faultActive) {
+          // Bubble is quenching! Software rapidly increments arc pulse frequency and ramps negative cathode bias
+          state.arcFreq = Math.min(14.5, state.arcFreq + 0.55);
+          state.cathodeBias = Math.max(-580, state.cathodeBias - 18);
+          // Arc injection rebuilds sheath charge
+          state.charge_Q += 1.85 * (state.arcFreq / 4.2);
+          state.recombRate = 3.8e-13;
+        } else {
+          // Nominal stable cruise: maintain optimal energy efficiency
+          const targetQ = 14 + 0.8 * state.B_geo;
+          const error = targetQ - state.charge_Q;
+          state.charge_Q += error * 0.12;
+
+          // Soft relaxation of controls
+          if (state.arcFreq > 4.2) state.arcFreq -= 0.15;
+          if (state.cathodeBias < -340) state.cathodeBias += 8;
+          state.recombRate = 1.4e-13;
+        }
+      } else {
+        // MANUAL MODE: purely governed by sliders
+        const decayFactor = 0.96;
+        if (state.charge_Q > qCrit) {
+          state.charge_Q = state.charge_Q * decayFactor + (state.arcFreq * 3.2) * (1 - decayFactor);
+        } else {
+          // Collapse accelerates due to recombination runaway
+          state.charge_Q = Math.max(2.0, state.charge_Q - 0.8);
+          state.recombRate = 6.2e-13;
+        }
+      }
+
+      // Check Quench Anomaly Status
+      if (state.charge_Q <= qCrit + 1.0) {
+        state.quenchAlert = true;
+      } else {
+        state.quenchAlert = false;
+      }
+
+      // Calculate Virtual Aerodynamic Sail Radius & Drag
+      if (!state.quenchAlert) {
+        state.bubbleRadius = 0.4 + 1.6 * Math.sqrt(state.charge_Q / 45.0) * (state.B_geo / 40.0)**(0.25);
+        state.dragMult = (Math.PI * (state.bubbleRadius**2)) / 0.35; // 0.35 m^2 bus physical cross section
+      } else {
+        state.bubbleRadius = 0.35; // Collapsed to physical bus dimension
+        state.dragMult = 1.0;
+      }
+
+      const effArea = Math.PI * (state.bubbleRadius**2);
+      const dragForce_mN = 0.5 * 2.2 * (state.ne_ambient * 1e11 * 2.65e-26 * 16) * (7650**2) * effArea * 1000;
+      const decayRate_km = (dragForce_mN / 28.0) * 36.2; // 28 kg CubeSat
+
+      // Update HUD elements
+      updateHUD(effArea, dragForce_mN, decayRate_km);
+
+      // Throttled Chart Updates (every 4 ticks to maintain 60 FPS)
+      if (tickCount % 4 === 0) {
+        updateCharts(effArea);
+      }
+
+      // Render physical canvas animation
+      drawCanvas();
+    }
+
+    function updateHUD(effArea, dragForce_mN, decayRate_km) {
+      document.getElementById('topDragMult').innerText = `${state.dragMult.toFixed(1)}×`;
+      document.getElementById('teleBubbleRadius').innerText = `${state.bubbleRadius.toFixed(2)} m`;
+      document.getElementById('teleRecombRate').innerHTML = `${(state.recombRate * 1e13).toFixed(1)}×10⁻¹³ m³/s`;
+      document.getElementById('hudCathodeBias').innerText = `${state.cathodeBias.toFixed(0)} V`;
+      document.getElementById('hudArcFreq').innerText = `${state.arcFreq.toFixed(1)} kHz`;
+      document.getElementById('statDragForce').innerText = `${dragForce_mN.toFixed(1)} mN`;
+      document.getElementById('statDecayRate').innerText = `${decayRate_km.toFixed(1)} km/day`;
+      document.getElementById('statBeta').innerText = `${(28.0 / effArea).toFixed(2)} kg/m²`;
+      document.getElementById('statPower').innerText = `${(8.0 + (state.arcFreq * 1.8) + Math.abs(state.cathodeBias) * 0.02).toFixed(1)} W`;
+      document.getElementById('labelAreaCurr').innerText = `${effArea.toFixed(2)} m²`;
+      document.getElementById('labelFreqCurr').innerText = `${state.arcFreq.toFixed(2)} kHz`;
+      document.getElementById('footKalman').innerText = (0.012 + (state.quenchAlert ? 0.08 : 0.0)).toFixed(3);
+
+      const quenchBox = document.getElementById('quenchAlertBox');
+      const banner = document.getElementById('statusBanner');
+      const dot = document.getElementById('stateIndicatorDot');
+      const title = document.getElementById('stateTitle');
+      const desc = document.getElementById('stateDesc');
+
+      if (state.quenchAlert) {
+        quenchBox.classList.remove('hidden');
+        banner.className = 'p-3.5 rounded-xl border bg-rose-950/40 border-rose-800/80 flex flex-wrap items-center justify-between gap-3 backdrop-blur-sm transition-all duration-300';
+        dot.className = 'w-3.5 h-3.5 rounded-full bg-rose-500 animate-ping';
+        title.className = 'font-bold text-sm tracking-wide text-rose-400 uppercase font-mono';
+        title.innerText = 'CRITICAL PLUME RECOMBINATION QUENCH';
+        desc.innerText = 'Virtual sail collapsed! Magnetic deflection insufficient. Dynamic frequency sweep engaged to reignite sheath.';
+      } else {
+        quenchBox.classList.add('hidden');
+        banner.className = 'p-3.5 rounded-xl border bg-gray-900/40 border-gray-800 flex flex-wrap items-center justify-between gap-3 backdrop-blur-sm transition-all duration-300';
+        dot.className = 'w-3.5 h-3.5 rounded-full bg-cyan-400 animate-pulse';
+        title.className = 'font-bold text-sm tracking-wide text-cyan-300 uppercase font-mono';
+        title.innerText = 'NOMINAL INFLATION STABLE';
+        desc.innerText = `Ion sheath boundary fully pressurized against Earth ionosphere. Effective cross-section: ${effArea.toFixed(1)} m² (Physical bus: 0.35 m²).`;
+      }
+    }
+
+    function updateCharts(effArea) {
+      // 1. Update (B, Q) scatter current point
+      phaseChart.data.datasets[2].data = [{ x: state.B_geo, y: state.charge_Q }];
+      if (state.quenchAlert) {
+        phaseChart.data.datasets[2].backgroundColor = '#ef4444';
+      } else {
+        phaseChart.data.datasets[2].backgroundColor = '#06b6d4';
+      }
+      phaseChart.update('none');
+
+      // 2. Update telemetry history buffers
+      state.historyArea.shift();
+      state.historyArea.push(effArea);
+      chartAreaHistory.data.datasets[0].data = state.historyArea;
+      chartAreaHistory.update('none');
+
+      state.historyFreq.shift();
+      state.historyFreq.push(state.arcFreq);
+      chartFreqHistory.data.datasets[0].data = state.historyFreq;
+      chartFreqHistory.update('none');
+    }
+
+    // ---------------------------------------------------------------------------
+    // 6. Interactive Controls & Fault Injection Handlers
+    // ---------------------------------------------------------------------------
+    function toggleAutonomousMode() {
+      state.autonomous = !state.autonomous;
+      const btn = document.getElementById('btnAutonomousToggle');
+      const text = document.getElementById('btnAutoText');
+      const badge = document.getElementById('stateModeBadge');
+      const manualCathode = document.getElementById('manualCathode');
+      const manualFreq = document.getElementById('manualFreq');
+
+      if (state.autonomous) {
+        btn.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all bg-emerald-950 border border-emerald-600 text-emerald-300 flex items-center gap-1.5';
+        text.innerText = 'AUTONOMOUS: ACTIVE';
+        badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-300';
+        badge.innerText = 'CLOSED-LOOP AUTONOMOUS';
+        manualCathode.disabled = true;
+        manualFreq.disabled = true;
+        manualCathode.classList.add('cursor-not-allowed', 'opacity-50');
+        manualFreq.classList.add('cursor-not-allowed', 'opacity-50');
+      } else {
+        btn.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all bg-amber-950 border border-amber-600 text-amber-300 flex items-center gap-1.5';
+        text.innerText = 'MANUAL OVERRIDE';
+        badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 border border-amber-700 text-amber-300';
+        badge.innerText = 'MANUAL PILOT CONTROL';
+        manualCathode.disabled = false;
+        manualFreq.disabled = false;
+        manualCathode.classList.remove('cursor-not-allowed', 'opacity-50');
+        manualFreq.classList.remove('cursor-not-allowed', 'opacity-50');
+      }
+    }
+
+    function updateEnvironmentSliders() {
+      state.manualSliderActive = true;
+      const bVal = parseFloat(document.getElementById('sliderB').value);
+      const neVal = parseFloat(document.getElementById('sliderNe').value);
+      state.B_geo = bVal;
+      state.ne_ambient = neVal;
+      document.getElementById('sliderBVal').innerHTML = `${bVal.toFixed(1)} $\\mu\\text{T}$`;
+      document.getElementById('sliderNeVal').innerHTML = `${neVal.toFixed(1)} × 10¹¹ m⁻³`;
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise();
+      }
+    }
+
+    function manualOverride() {
+      if (state.autonomous) return;
+      state.cathodeBias = parseFloat(document.getElementById('manualCathode').value);
+      state.arcFreq = parseFloat(document.getElementById('manualFreq').value);
+      document.getElementById('manualCathodeVal').innerText = `${state.cathodeBias.toFixed(0)} V`;
+      document.getElementById('manualFreqVal').innerText = `${state.arcFreq.toFixed(1)} kHz`;
+    }
+
+    function injectEquatorialAnomaly() {
+      state.faultActive = true;
+      state.faultCooldown = 75; // 3 seconds at 25Hz
+      state.charge_Q = 7.5;     // Collapse charge below threshold
+      state.arcFreq = 1.8;      // Plume quenching
+    }
+
+    function triggerEmergencyFlush() {
+      state.charge_Q = 58.0;
+      state.arcFreq = 12.0;
+      state.cathodeBias = -520;
+      state.faultActive = false;
+      state.faultCooldown = 0;
+    }
+
+    function downloadProposalBrief() {
+      window.print();
+    }
+
+    // ---------------------------------------------------------------------------
+    // 7. System Initialization on Window Load
+    // ---------------------------------------------------------------------------
+    window.onload = function() {
+      resizeCanvas();
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise();
+      }
+      // Start 25Hz (40ms) physics & animation loop
+      setInterval(physicsStep, 40);
+    };
+  </script>
+</body>
+</html>
